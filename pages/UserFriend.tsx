@@ -24,11 +24,6 @@ export default async function UserFriend(props: {
   await delay(delayMs);
   return (
     <div style="border: 1px solid black; padding: 10px;">
-      <form method="POST">
-        <input type="hidden" name="userId" value={user.email} />
-        <input type="hidden" name="friendId" value={friend.email} />
-        <button type="submit">Add Friend</button>
-      </form>
       Name: {user.name} is friends with {friend.name} {session.test}
     </div>
   );
