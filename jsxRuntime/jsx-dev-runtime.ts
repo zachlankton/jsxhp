@@ -1,9 +1,38 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 function Fragment() {}
 
 interface Source {
   fileName: string;
   lineNumber: number;
   columnNumber?: number;
+}
+
+export const requestContext = new AsyncLocalStorage();
+export const functionContext = new AsyncLocalStorage();
+
+interface RequestContext {
+  request: Request;
+  url: URL;
+  session: any;
+  cookies: Record<string, string>;
+}
+
+export async function createPostCommand() {
+  const ctx = requestContext.getStore();
+}
+
+export function useRequestContext() {
+  const reqCtx = requestContext.getStore();
+  return reqCtx as RequestContext;
+}
+
+export function useSession() {
+  const reqCtx = requestContext.getStore();
+  if (!reqCtx || typeof reqCtx !== "object" || !("session" in reqCtx)) {
+    throw new Error("useSession must be used within a request context");
+  }
+  return reqCtx.session as any;
 }
 
 // Symbol to identify our JSX elements
@@ -50,6 +79,7 @@ async function renderToHTML(
       typeof element.type === "function" &&
       element.type.name !== "Fragment"
     ) {
+      functionContext.run({ component: element.type }, async () => {});
       const renderedElement = element.type(element.props) as JSX.Element;
       if (renderedElement instanceof Promise) {
         let resolveProm: () => void;
@@ -137,6 +167,8 @@ async function renderToHTML(
           await walkJSXElement(child as JSX.Element, controller);
         } else if (child && typeof child === "string") {
           controller.enqueue(child + "\n");
+        } else if (typeof child === "number") {
+          controller.enqueue(child.toString() + "\n");
         } else if (Array.isArray(child)) {
           child.forEach((c) => {
             if (
@@ -164,6 +196,8 @@ async function renderToHTML(
       typeof element.props.children === "string"
     ) {
       controller.enqueue(element.props.children);
+    } else if (typeof element.props.children === "number") {
+      controller.enqueue(element.props.children.toString());
     }
 
     try {
