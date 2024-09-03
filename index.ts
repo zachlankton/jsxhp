@@ -1,8 +1,11 @@
 import { serve } from "bun";
 import {
+  importModuleCache,
+  internalSessionStore,
   jsxDEV,
   renderToHTML,
   requestContext,
+  sessionStore,
 } from "./jsxRuntime/jsx-dev-runtime";
 import { readdir } from "node:fs/promises";
 
@@ -19,9 +22,13 @@ const publicFilesMap = publicFiles.reduce((prevValue, currValue) => {
   return prevValue;
 }, {} as Record<string, boolean>);
 
-const importModuleCache = new Map<string, any>();
-const sessionStore = new Map<string, any>();
-const internalSessionStore = new Map<string, any>();
+// pre load and cache all routes
+Object.keys(router.routes).forEach(async (key) => {
+  const filePath = router.routes[key];
+  console.log("pre loading route", key, filePath);
+  const importModule = await import(filePath);
+  importModuleCache.set(filePath, importModule);
+});
 
 async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,8 +62,12 @@ const server = serve({
         session = JSON.parse(await Bun.file(tempFilePath).text());
       } else {
         session = { id: sessionId };
+      }
+
+      if (!internalSession) {
         internalSession = { id: sessionId };
       }
+
       sessionStore.set(sessionId, session);
       internalSessionStore.set(sessionId, internalSession);
     }
@@ -64,6 +75,7 @@ const server = serve({
     const match = router.match(req);
     if (match) {
       const url = new URL(req.url);
+
       return await requestContext.run(
         { request: req, session, internalSession, url, cookies },
         async () => {
@@ -74,6 +86,8 @@ const server = serve({
             importModule = await import(match.filePath);
             importModuleCache.set(match.filePath, importModule);
           }
+
+          internalSession.component = importModule.default;
 
           // wrap importModule.default in a JSX structure
           const jsxTree = jsxDEV(

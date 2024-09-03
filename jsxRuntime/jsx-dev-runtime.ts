@@ -10,6 +10,13 @@ interface Source {
 
 export const requestContext = new AsyncLocalStorage();
 export const functionContext = new AsyncLocalStorage();
+export const importModuleCache = new Map<string, any>();
+export const sessionStore = new Map<string, any>();
+export const internalSessionStore = new Map<string, any>();
+
+export async function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 interface RequestContext {
   request: Request;
@@ -18,8 +25,30 @@ interface RequestContext {
   cookies: Record<string, string>;
 }
 
-export async function createPostCommand() {
-  const ctx = requestContext.getStore();
+export function createPostCommand(name: string, callback: () => any) {
+  const ctx = requestContext.getStore() as RequestContext;
+  if (
+    !ctx ||
+    typeof ctx !== "object" ||
+    !("internalSession" in ctx) ||
+    !ctx.internalSession ||
+    typeof ctx.internalSession !== "object" ||
+    !("component" in ctx.internalSession)
+  ) {
+    throw new Error("createPostCommand must be used within a request context");
+  }
+
+  const funcCtx = functionContext.getStore();
+  if (!funcCtx || typeof funcCtx !== "object" || !("component" in funcCtx)) {
+    throw new Error("createPostCommand must be used within a function context");
+  }
+
+  if (ctx.internalSession.component !== funcCtx.component) return;
+
+  if (ctx.request.method !== "POST") return;
+  if (!ctx.url.searchParams.has(name)) return;
+
+  return callback();
 }
 
 export function useRequestContext() {
@@ -79,48 +108,49 @@ async function renderToHTML(
       typeof element.type === "function" &&
       element.type.name !== "Fragment"
     ) {
-      functionContext.run({ component: element.type }, async () => {});
-      const renderedElement = element.type(element.props) as JSX.Element;
-      if (renderedElement instanceof Promise) {
-        let resolveProm: () => void;
-        const prom = new Promise<void>((resolve) => {
-          resolveProm = resolve;
-        });
-        promises.push(prom);
-        const uniqueId = Math.random().toString(36).substring(2, 15);
-        const fallback: JSX.Element =
-          element.type.LoaderFallback ??
-          jsxDEV(
-            "div",
-            { children: "Loading... (Default Fallback)" },
-            null,
-            true,
-            undefined,
-            undefined
-          );
+      await functionContext.run({ component: element.type }, async () => {
+        const renderedElement = element.type(element.props) as JSX.Element;
+        if (renderedElement instanceof Promise) {
+          let resolveProm: () => void;
+          const prom = new Promise<void>((resolve) => {
+            resolveProm = resolve;
+          });
+          promises.push(prom);
+          const uniqueId = Math.random().toString(36).substring(2, 15);
+          const fallback: JSX.Element =
+            element.type.LoaderFallback ??
+            jsxDEV(
+              "div",
+              { children: "Loading... (Default Fallback)" },
+              null,
+              true,
+              undefined,
+              undefined
+            );
 
-        fallback.props.id = uniqueId;
+          fallback.props.id = uniqueId;
 
-        await walkJSXElement(fallback, controller);
-        renderedElement.then(async (resolvedElement) => {
-          if (
-            resolvedElement.type.name === "Fragment" &&
-            resolvedElement.props.children &&
-            Array.isArray(resolvedElement.props.children)
-          ) {
-            resolvedElement.props.children.forEach((child: JSX.Element) => {
-              if (child && typeof child === "object" && "props" in child) {
-                child.props.style += ";display: none;";
-                child.props.dataLoaderId = uniqueId;
-              }
-            });
-          } else {
-            resolvedElement.props.style += ";display: none;";
-            resolvedElement.props.dataLoaderId = uniqueId;
-          }
+          await walkJSXElement(fallback, controller);
 
-          await walkJSXElement(resolvedElement, controller);
-          controller.enqueue(`
+          renderedElement.then(async (resolvedElement) => {
+            if (
+              resolvedElement.type.name === "Fragment" &&
+              resolvedElement.props.children &&
+              Array.isArray(resolvedElement.props.children)
+            ) {
+              resolvedElement.props.children.forEach((child: JSX.Element) => {
+                if (child && typeof child === "object" && "props" in child) {
+                  child.props.style += ";display: none;";
+                  child.props.dataLoaderId = uniqueId;
+                }
+              });
+            } else {
+              resolvedElement.props.style += ";display: none;";
+              resolvedElement.props.dataLoaderId = uniqueId;
+            }
+
+            await walkJSXElement(resolvedElement, controller);
+            controller.enqueue(`
         <script>
           (() => {
             const loader = document.getElementById("${uniqueId}");
@@ -135,11 +165,13 @@ async function renderToHTML(
           })()  
         </script>
         `);
-          resolveProm();
-        });
-      } else {
-        await walkJSXElement(renderedElement, controller);
-      }
+            resolveProm();
+          });
+        } else {
+          await walkJSXElement(renderedElement, controller);
+        }
+      });
+
       return;
     }
 
