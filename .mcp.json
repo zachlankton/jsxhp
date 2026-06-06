@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "terminal": {
+      "command": "bun",
+      "args": [
+        "/Users/zacharylankton/mlx/server/mcp-terminal-server/index.ts"
+      ]
+    },
+    "tools": {
+      "command": "bun",
+      "args": [
+        "/Users/zacharylankton/mlx/server/mcpLocalTools.ts"
+      ]
+    }
+  }
+}
