@@ -8,6 +8,9 @@
     "jsx": "react-jsx",
     "jsxImportSource": "jsxRuntime",
     "allowJs": true,
+		"paths": {
+			"jsxRuntime/*": ["./jsxRuntime/*"]
+		},
 
     // Bundler mode
     "moduleResolution": "bundler",
